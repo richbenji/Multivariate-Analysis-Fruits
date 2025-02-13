@@ -1,0 +1,947 @@
+---
+title: "Projet d'analyse de données multivariées"
+author: "GOUY Richard"
+date: '`r format(Sys.time(), "%B %d, %Y,%H:%M")`'
+output:
+  pdf_document: # options pour sorties pdf
+    toc: yes
+    toc_depth: '3'
+  html_document: # options pour sortie HTML
+    code_folding: hide #  Cache le code  
+    collapsed: yes # Crée un document unique 
+    fig_caption: yes # Figures encapsulées ? 
+    fig_height: 5 # Hauteur par défaut des figures
+    fig_width: 6 # Largeur par défaut des figure
+    highlight: tango # style de mise en valeur du code
+    number_sections: yes # Ajout table des matières 
+    theme: united  # Style du document
+    toc: yes # Table des matiere ?
+    toc_depth: 3  # Profondeur table des matière
+    toc_float: yes # table des matière flottante
+  word_document: default
+editor_options: 
+  chunk_output_type: console
+---
+```{r setup, include=FALSE}
+# Installation des librairies si ce n'est pas encore fait
+knitr::opts_chunk$set(echo = TRUE)
+require(devtools)
+require(knitr) 
+require(pander) # Librairie pour afficher des tableaux
+require(pastecs) # librairie qui inclut la fonction de stat descriptive stat.desc
+# chargez ici les autres librairies que vous utilisez dans votre code.  
+```
+
+Sur cette page, nous allons analyser les données Fruits. Ces données contiennt les quantités de nutriments, de joules et de calories pour 72 fruits.
+
+Contexte
+
+On s’intéresse à la composition nutritionnelle de fruits. La composition nutritionnelle des fruits récapitule la liste des nutriments que l’on trouve en moyenne dans 100 grammes de fruit. Les valeurs sont données pour 100 grammes de denrées comestibles de l'aliment.
+Base de calcul de la valeur calorique pour 1 gramme (1 kcal = 4,18 kJ) :
+- Glucides : 4 kcal ou 17 kJ
+- Protéines : 4 kcal ou 17 kJ
+- Lipides : 9 kcal ou 38 kJ
+- Alcool éthylique : 7 kcal ou 29 kJ (non métabolisables) (7kcal par g d'alcool mais 5,6 kcal par ml d'alcool)
+
+Les données : teneur_fruits.xls
+
+Pour toute une série de fruits différents, on donne les informations suivantes :
+Calories (kcal)
+joules (kJ) -> non utilisé dans l’analyse
+Glucides (g)
+Protides (g)
+Lipides (g)
+Sodium (mg)
+Potassium (mg)
+Magnésium (mg)
+Calcium (mg)
+
+# Analyse exploratoire des données
+
+## Lecture et préparation des données
+
+Ici les données sont récupérées. Toutes les variables sont directement converties dans la même unité (mg) et les noms de colonnes formatés de la même façon. Les colonnes représentants les joules et les calories sont supprimées.
+
+Ce jeu de données contient 72 individus et 8 variables = 1 représentant les espèces et 7 représentant des constituants nutritifs.
+
+```{r}
+# Se rendre dans le répertoire contenant le jeu de données
+#=========================================================
+
+setwd("/home/richard/Bureau/Bio-statistiques/multivariées/")
+
+# Importer le jeu de données
+#===========================
+
+tfruits <- read.table("teneurs_fruits.csv",
+                 sep = ",",
+                 dec = ",",
+                 header = T
+                 #row.names = T,
+                 #check.names = F,
+                 #fill = TRUE
+                 )
+
+# Formater le nom des colonnes
+#=============================
+
+#colClean <- function(x){ colnames(x) <- gsub("..", ".", colnames(x)); x }
+colnames(tfruits)[colnames(tfruits) == 'X'] <- "especes"
+colnames(tfruits) <- gsub(x=colnames(tfruits), pattern = "\\.$", replacement = "")
+colnames(tfruits) <- gsub(x=colnames(tfruits), pattern = "\\.\\.", replacement = "\\.")
+
+# Convertir les colonnes qui sont en "g" en "mg"
+#===============================================
+
+# Repérer les colonnes en "g" au lieu de "mg" (2 façons)
+col_grammes <- grep(".g", names(tfruits), value = T)
+col_grammes <- grep(".g", names(tfruits), value = T, fixed = T)
+
+for (i in 1:length(col_grammes)) {
+  # Multiplier par 1000 pour convertir en mg
+  tfruits[col_grammes[i]] <- get(col_grammes[i], tfruits) * 1000
+  # changer nom de la colonne
+  colnames(tfruits)[match(colnames(tfruits[col_grammes[i]]), colnames(tfruits))] <- sub(".g", ".mg", col_grammes[i])
+}
+
+# Supprimer les colonnes "joules.kJ" et Calories.kcal
+#====================================================
+
+tfruits$joules.kJ <- NULL
+tfruits$Calories.kcal <- NULL
+
+#tfruits <- subset(tfruits, select = -c(especes, Calories.kcal))
+
+# Voir matrice et description
+#============================
+
+View(tfruits)
+
+dim(tfruits) #72 fruits
+
+```
+## Statistiques descriptives par variable
+```{r}
+summary(tfruits)
+```
+On remarque globalement une plus grande proportion en glucides chez nos fruits comparé aux autres variables.
+
+## Graphiques des distribution
+```{r}
+# Distribution de chacune des variables
+#======================================
+
+library(ggplot2)
+
+distribution <- function(df, figure = TRUE) {
+  for (i in 1:ncol(df)) {
+    if (is.numeric(df[,i]) == TRUE) {
+      unite <- sub("(^.*)\\.(.*$)", "\\2", colnames(df[i]))
+      variable <- sub("(^.*)\\.(.*$)", "\\1", colnames(df[i]))
+      p <- ggplot(data = df, aes(as.character(x=especes), y = df[,i])) +
+        geom_col(color="steelblue", fill="steelblue") +
+        ggtitle(paste0("Distribution des quantités de ", variable, " au sein de ", nrow(df)," fruits")) +
+        labs(x="Espèces", y = unite) +
+        theme(axis.text.x = element_text(angle=45, hjust = 1, size = 6))
+      print(p)
+    }
+    else {
+      #cat(paste0("la variable ", colnames(df[i]), " n'est pas numérique\n"))
+      message("la variable ", colnames(df[i]), " n'est pas numérique !!!\n")
+    }
+  }
+  }
+      
+distribution(tfruits)
+```
+
+En regardant les distributions de nos variables au sein de nos différents fruits, on remarque que un certains groupes de fruits tend à être naturellement plus riche en divers nutriments. Ce sont beaucoup les olives et diverses noix qui semblent, de manière générale, concentrer les plus grandes quantités de nutriments.
+Par exemple, globalement, ce sont surtout des noix et arachides qui sont les plus riches en protides, lipides, magnésium et calcium.
+
+## Matrices de corrélations
+```{r}
+# Matrice de corrélation
+#=======================
+
+library(dplyr)
+
+#num_tfruit <- select_if(tfruits, is.numeric)
+num_tfruits <- tfruits %>% select_if(is.numeric)
+rownames(num_tfruits) <- tfruits$especes
+
+corr_tfruit <- cor(num_tfruits)
+
+# Idem avec ggplot2
+library(ggcorrplot)
+#ggcorrplot(corr_tfruit, method = "square")
+ggcorrplot(corr_tfruit,
+           method = "circle",
+           outline.col = "white",
+           ggtheme = ggplot2::theme_light(),
+           lab = T,
+           insig = "blank",
+           colors = c("blue", "white", "red")
+           ) +
+  ggtitle("Matrice de corrélation") +
+  theme(
+    panel.background = element_rect(fill = "lightblue",
+                                    colour = "lightblue",
+                                    size = 0.5, linetype = "solid"),
+    panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                    colour = "white"), 
+    panel.grid.minor = element_line(size = 0.25, linetype = 'solid',
+                                    colour = "white")
+  )
+```
+
+## Scatter plot matrix
+
+```{r}
+# Scatter plot matrix
+#====================
+
+library("GGally")
+
+ggpairs(num_tfruits, columns = 1:ncol(num_tfruits), title = "Scatter plot matrix, distribution et coefficient de Pearson")
+
+```
+
+On retrouve le pressentiment de nos graphiques de distribution, à savoir que les variables protides, lipides, magnésium et calcium sont relativement bien corrélées. Ainsi, une forte présence quantité d'une d'entre elle au sein d'un fruit laisse présager également d'une quantité importante des autres variables.
+
+# Analyse en Composantes Principales
+
+```{r}
+# Analyse en composantes principales
+library(FactoMineR)
+library(factoextra)
+
+# Calculer l’ACP
+#===============
+
+res.pca <- PCA(num_tfruits, scale.unit = TRUE, graph = FALSE)
+
+# Accéder aux résultats de l'ACP
+#===============================
+```
+
+## Valeurs propres
+
+```{r}
+# Valeurs propres
+
+res.pca$eig
+```
+
+## Résultats des variables
+
+Ci-dessous sont affichés les coordonnées des variables, leur contribution aux axes ainsi que la qualité de leur représentation.
+
+```{r}
+# Résultats des variables
+
+res.var <- res.pca$var
+res.var$coord          # Coordonnées
+res.var$contrib        # Contributions aux axes
+res.var$cos2           # Qualité de représentation
+```
+
+## Résultats des individus
+
+Ci-dessous sont affichés les coordonnées des individus, leur contribution aux axes ainsi que la qualité de leur représentation.
+
+```{r}
+# Résultats des individus
+
+res.ind <- res.pca$ind
+res.ind$coord          # Coordonnées
+res.ind$contrib        # Contributions aux axes
+res.ind$cos2           # Qualité de représentation
+```
+
+## Distribution de l'inertie
+
+L’inertie des axes factoriels indique d’une part si les variables sont structurées et suggère d’autre part le nombre judicieux de composantes principales à étudier.
+
+Les 2 premiers axes de l’ analyse expriment 74.22% de l’inertie totale du jeu de données ; cela signifie que 74.22% de la variabilité totale du nuage des individus (ou des variables) est représentée dans ce plan. C’est un pourcentage élevé, et le premier plan représente donc bien la variabilité contenue dans une très large part du jeu de données actif. Cette valeur est nettement supérieure à la valeur référence de 42.18%, la variabilité expliquée par ce plan est donc hautement significative (cette intertie de référence est le quantile 0.95-quantile de la distribution des pourcentages d’inertie obtenue en simulant 2333 jeux de données aléatoires de dimensions comparables sur la base d’une distribution normale).
+
+```{r}
+# Visualisation des valeurs propres (Eigenvalues)
+#================================================
+
+eig.val <- res.pca$eig
+
+# Avec Factoextra
+eig.val <- get_eigenvalue(res.pca)
+
+fviz_eig(res.pca,
+         addlabels = TRUE,
+         ylim = c(0, max(res.pca$eig[,2])),
+         linecolor = "red") +
+  labs(title = "Décomposition de l'inertie totale des axes",
+       subtitle = "Histogramme des valeurs propres"
+       ) +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5)
+        )
+```
+
+Le premier facteur est prépondérant : il explique à lui seul 52.64% de la variabilité totale des données. Il convient de noter que dans un tel cas, la variabilité liée aux autres composantes peut être dénuée de sens, en dépit d’un pourcentage élevé.
+
+Une estimation du nombre pertinent d’axes à interpréter suggère de restreindre l’analyse à la description des 2 premiers axes. Ces composantes révèlent un taux d’inertie supérieur à celle du quantile 0.95-quantile de distributions aléatoires (74.22% contre 42.18%). Cette observation suggère que seuls ces axes sont porteurs d’une véritable information.
+
+## Graphiques des variables
+
+### Cercle des corrélations
+
+```{r}
+# Graphiques des variables
+#========================
+
+# Cercle des corrélations
+#------------------------
+
+# Avec Factoextra
+fviz_pca_var(res.pca, col.var = "black", repel = TRUE) +
+  ggtitle("ACP - variables") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+### Qualité de représentation des variables
+
+```{r}
+# Qualité de représentation des variables
+#----------------------------------------
+
+var <- get_pca_var(res.pca)
+
+#cos2 des variables sur toutes les dimensions
+
+ggcorrplot(var$cos2,
+           method = "circle",
+           outline.col = "white",
+           ggtheme = ggplot2::theme_light(),
+           lab = T,
+           insig = "blank",
+           colors = c("blue", "white", "red")
+           ) +
+  ggtitle("Matrice de corrélation") +
+  theme(
+    panel.background = element_rect(fill = "lightblue",
+                                    colour = "lightblue",
+                                    size = 0.5, linetype = "solid"),
+    panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                    colour = "white"), 
+    panel.grid.minor = element_line(size = 0.25, linetype = 'solid',
+                                    colour = "white"),
+    plot.title = element_text(hjust = 0.5)
+    )
+
+# Cos2 total des variables sur Dim.1 et Dim.2
+fviz_cos2(res.pca, choice = "var", axes = 1:2)
+
+# Cos2 total des variables sur Dim.3 et Dim.4
+fviz_cos2(res.pca, choice = "var", axes = 3:4)
+
+# Cos2 total des variables sur les 4 1ères dimensions
+fviz_cos2(res.pca, choice = "var", axes = 1:4)
+# Avec Factoextra : colorer en fonction du cos2 = qualité de représentation
+# La transparence détermine la qualité
+fviz_pca_var(res.pca, alpha.var = "cos2",
+             repel = TRUE,
+             title = "cercle des corrélations"
+             ) +
+  theme(plot.title = element_text(hjust = 0.5))
+# La couleur détermine la qualité
+fviz_pca_var(res.pca, col.var = "cos2",
+             gradient.cols = c("deeppink2", "lightseagreen", "deepskyblue4"),
+             repel = TRUE,
+             title = "Cercle des corrélations"
+             ) +
+  theme(plot.title = element_text(hjust = 0.5))
+# Couleur et transparence determinent la qualité
+fviz_pca_var(res.pca, col.var = "cos2", alpha.var = "cos2",
+             gradient.cols = c("deeppink2", "lightseagreen", "deepskyblue4"),
+             repel = TRUE,
+             title = "cercle des corrélations"
+             ) +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+### Contributions des variables aux axes principaux
+
+```{r}
+# Contributions des variables aux axes principaux
+#------------------------------------------------
+
+ggcorrplot(var$contrib,
+           method = "circle",
+           outline.col = "white",
+           ggtheme = ggplot2::theme_light(),
+           lab = T,
+           insig = "blank",
+           colors = c("blue", "white", "red")
+           ) +
+  ggtitle("Matrice de corrélation") +
+  theme(
+    panel.background = element_rect(fill = "lightblue",
+                                    colour = "lightblue",
+                                    size = 0.5, linetype = "solid"),
+    panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                    colour = "white"), 
+    panel.grid.minor = element_line(size = 0.25, linetype = 'solid',
+                                    colour = "white"),
+    plot.title = element_text(hjust = 0.5)
+  )
+
+#La ligne en pointillé rouge, sur les graphiques ci-dessous indique la contribution moyenne attendue. Si la contribution des variables était uniforme, la valeur attendue serait 1/length(variables) = 1/7
+# Contributions des variables à la Composante Principale 1
+fviz_contrib(res.pca, choice = "var", axes = 1, top = 7)
+# Contributions des variables à la Composante Principale 2
+fviz_contrib(res.pca, choice = "var", axes = 2, top = 7)
+# Contribution totale aux Composantes Principales 1 et 2
+fviz_contrib(res.pca, choice = "var", axes = 1:2, top = 7)
+# Contributions des variables à la Composante Principale 3
+fviz_contrib(res.pca, choice = "var", axes = 3, top = 7)
+# Contributions des variables à la Composante Principale 4
+fviz_contrib(res.pca, choice = "var", axes = 4, top = 7)
+# Contribution totale aux Composantes Principales 3 et 4
+fviz_contrib(res.pca, choice = "var", axes = 3:4, top = 7)
+# Contribution totale aux 4 1ères Composantes Principales
+fviz_contrib(res.pca, choice = "var", axes = 1:4, top = 7)
+
+```
+
+### Mise en évidence des variables les plus importantes (ou contributives)
+
+```{r}
+# Mise en évidence des variables les plus importantes (ou contributives)
+fviz_pca_var(res.pca, col.var = "contrib",
+             alpha.var = "contrib",
+             gradient.cols = c("deeppink2", "lightseagreen", "deepskyblue4"),
+             repel = TRUE,
+             title = "Cercle des corrélations"
+             ) +
+  theme(plot.title = element_text(hjust = 0.5)
+  )
+```
+
+### Description des dimensions
+
+```{r}
+# Description des dimensions
+#===========================
+
+# Identifier les variables les plus corrélées avec une dimension donnée
+
+res.desc <- dimdesc(res.pca, axes = c(1:4), proba = 0.05)
+# Description de la dimension 1
+res.desc$Dim.1
+# Description de la dimension 2
+res.desc$Dim.2
+# Description de la dimension 3
+res.desc$Dim.3
+# Description de la dimension 4
+res.desc$Dim.4  
+```
+
+On peut conclure que :
+
+- la dimension 1 correspond aux quantités en protides, magnésium, lipides et calcium.
+- la dimension 2 correspond aux quantités en potassium, glucides et sodium.
+- la dimension 3 correspond aux quantités en glucides et sodium.
+- la dimension 4 correspond aux quantités en calcium.
+
+
+## Graphique des individus
+
+```{r}
+# Graphique des individus
+#========================
+
+ind <- get_pca_ind(res.pca)
+
+# Les 20 individus les plus représentatifs de PC1 et PC2 sont labellisés
+plot.PCA(res.pca, choix = "ind", autoLab = "yes", select = "contrib 20")
+```
+
+Sur le graphe ci-dessus, les 20 individus les plus représentatifs sont labelisés.
+
+Ci-dessous, vous trouverez les graphes des individus pour les composantes 1 à 4, colorés selon le cosinus carré ou leur contribution, ainsi qu'une représentation des 20 individus les plus représentatifs.
+```{r}
+# Avec Factoextra
+
+# Cas des Composantes 1 et 2
+#---------------------------
+# Coloré selon le cosinus carré
+fviz_pca_ind(res.pca,
+             axes = c(1,2),
+             col.ind = "cos2",
+             gradient.cols = c("deeppink2", "lightseagreen", "deepskyblue4"),
+             label = "none",
+             repel = TRUE
+             ) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_set(theme_gray())
+
+# Coloré selon la contribution
+fviz_pca_ind(res.pca,
+             axes = c(1,2),
+             col.ind = "contrib",
+             gradient.cols = c("deeppink2", "lightseagreen", "deepskyblue4"),
+             label = "none",
+             repel = TRUE
+             ) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_set(theme_gray())
+
+# Visualiser les 20 1ers individus représentatifs pour PC1 et PC2
+fviz_pca_ind(res.pca,
+             axes = c(1,2),
+             col.ind = "contrib",
+             gradient.cols = c("deeppink2", "lightseagreen", "deepskyblue4"),
+             select.ind = list(contrib = 20),  
+             repel = TRUE
+             ) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_set(theme_gray())
+
+# Taille et couleur des points en fonction du cos2
+fviz_pca_ind(res.pca,
+             axes = c(1,2),
+             col.ind = "cos2",
+             pointsize = "cos2",
+             gradient.cols = c("deeppink2", "lightseagreen", "deepskyblue4"),
+             label = "none",
+             repel = TRUE
+             ) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_set(theme_gray())
+
+# Cas des Composantes 3 et 4
+#---------------------------
+# Coloré selon le cosinus carré
+fviz_pca_ind(res.pca,
+             axes = c(3,4),
+             col.ind = "cos2",
+             gradient.cols = c("deeppink2", "lightseagreen", "deepskyblue4"),
+             label = "none",
+             repel = TRUE # Évite le chevauchement de texte
+) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_set(theme_gray())
+
+# Coloré selon la contribution
+fviz_pca_ind(res.pca,
+             axes = c(3,4),
+             col.ind = "contrib",
+             gradient.cols = c("deeppink2", "lightseagreen", "deepskyblue4"),
+             label = "none",
+             repel = TRUE # Évite le chevauchement de texte
+) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_set(theme_gray())
+
+# Visualiser les 20 1ers individus représentatifs pour PC1 et PC2
+fviz_pca_ind(res.pca,
+             axes = c(3,4),
+             col.ind = "contrib",
+             gradient.cols = c("deeppink2", "lightseagreen", "deepskyblue4"),
+             select.ind = list(contrib = 20),  
+             repel = TRUE # Évite le chevauchement de texte
+) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_set(theme_gray())
+
+# Taille et couleur des points en fonction du cos2
+fviz_pca_ind(res.pca,
+             axes = c(3,4),
+             col.ind = "cos2",
+             pointsize = "cos2",
+             gradient.cols = c("deeppink2", "lightseagreen", "deepskyblue4"),
+             label = "none",
+             repel = TRUE
+) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_set(theme_gray())
+```
+
+La dimension 1 oppose des individus tels que Noix du Brésil, Amande sèche, Noix, Noisette, Abricot sec, Châtaigne sèche, Figue sèche, Noix de cajou et Raisin sec (à droite du graphe, caractérisés par une coordonnée fortement positive sur l’axe) à des individus caractérisés par une coordonnée fortement négative sur l’axe (à gauche du graphe).
+
+Le groupe auquel les individus Abricot sec, Châtaigne sèche, Figue sèche et Raisin sec appartiennent (caractérisés par une coordonnée positive sur l’axe) partage :
+
+- de fortes valeurs pour les variables Glucides.mg, Sodium.mg et Potassium.mg (de la plus extrême à la moins extrême).
+
+Le groupe auquel les individus Noix du Brésil, Amande sèche, Noix, Noisette et Noix de cajou appartiennent (caractérisés par une coordonnée positive sur l’axe) partage :
+
+- de fortes valeurs pour les variables Lipides.mg, Protides.mg, Magnésium.mg, Calcium.mg et Potassium.mg (de la plus extrême à la moins extrême).
+
+Le groupe 3 (caractérisé par des coordonnées négatives sur l’axe) partage :
+
+- de faibles valeurs pour les variables Potassium.mg, Protides.mg, Magnésium.mg, Calcium.mg, Lipides.mg, Sodium.mg et Glucides.mg (de la plus extrême à la moins extrême).
+
+La dimension 2 oppose des individus tels que Abricot sec, Châtaigne sèche, Figue sèche et Raisin sec (en haut du graphe, caractérisés par une coordonnées fortement positive sur l’axe) à des individus comme Noix du Brésil, Amande sèche, Noix, Noisette et Noix de cajou (en bas du graphe, caractérisés par une coordonnées fortement négative sur l’axe).
+
+Le groupe auquel les individus Abricot sec, Châtaigne sèche, Figue sèche et Raisin sec appartiennent (caractérisés par une coordonnée positive sur l’axe) partage :
+
+- de fortes valeurs pour les variables Glucides.mg, Sodium.mg et Potassium.mg (de la plus extrême à la moins extrême).
+
+Le groupe auquel les individus Noix du Brésil, Amande sèche, Noix, Noisette et Noix de cajou appartiennent (caractérisés par une coordonnées négative sur l’axe) partage :
+
+- de fortes valeurs pour les variables Lipides.mg, Protides.mg, Magnésium.mg, Calcium.mg et Potassium.mg (de la plus extrême à la moins extrême).
+
+
+## Barplot de la qualité de représentation (cosinus carré) des individus
+
+Les graphes ci-dessous montrent la qualité de représentation (le cosinus carré) des individus.
+
+La dimension 1 est surtout due aux fruits secs oléagineux à coque (noix).
+La dimension 2 est surtout due aux olives et divers fruits variés.
+La dimension 3 est très largement marquée par les olives.
+La dimension 4 est très largement marquée par les fruits secs oléagineux à coque (noix), en particulier la cacahuète.
+
+```{r}
+# Bar plot de la qualité de représentation (cos2) des individus
+fviz_cos2(res.pca, choice = "ind", axes = 1) +
+  theme(axis.text.x = element_text(angle=45, hjust = 1, size = 6))
+fviz_cos2(res.pca, choice = "ind", axes = 2) +
+    theme(axis.text.x = element_text(angle=45, hjust = 1, size = 6))
+fviz_cos2(res.pca, choice = "ind", axes = 3) +
+    theme(axis.text.x = element_text(angle=45, hjust = 1, size = 6))
+fviz_cos2(res.pca, choice = "ind", axes = 4) +
+    theme(axis.text.x = element_text(angle=45, hjust = 1, size = 6))
+
+# Contribution des 20 premièrs individus sur PC1
+fviz_contrib(res.pca,
+             choice = "ind",
+             axes = 1,
+             top = 20)
+
+# Contribution des 20 premièrs individus sur PC2
+fviz_contrib(res.pca,
+             choice = "ind",
+             axes = 2,
+             top = 20)
+
+# Contribution des 20 premièrs individus sur PC3
+fviz_contrib(res.pca,
+             choice = "ind",
+             axes = 3,
+             top = 20)
+
+# Contribution des 20 premièrs individus sur PC4
+fviz_contrib(res.pca,
+             choice = "ind",
+             axes = 4,
+             top = 20)
+
+# Contribution des 20 premiers individus sur PC1 et PC2
+fviz_contrib(res.pca, choice = "ind", axes = 1:2, top = 20)
+
+# Contribution des 20 premiers individus sur PC3 et PC4
+fviz_contrib(res.pca, choice = "ind", axes = 3:4, top = 20)
+
+# # Contribution des 20 premiers individus sur PC1, PC2, PC3 et PC4
+fviz_contrib(res.pca, choice = "ind", axes = 1:4, top = 20)
+```
+
+## Biplot des individus et des variables
+
+```{r}
+# Biplot des individus et des variables
+fviz_pca_biplot(res.pca, repel = TRUE,
+                col.var = "deeppink2",
+                col.ind = "deepskyblue3",
+                label = "var"
+                ) +
+  ggtitle("Biplot des individus et des variables") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_set(theme_gray())
+```
+
+
+# Clustering
+
+## Classification hiérarchique ascendante (CAH)
+```{r}
+# 1 / Classification hierarchique ascendante (CAH)
+#=================================================
+# Calcul des distances & graphiques
+#----------------------------------
+
+num_tfruits.dist <- dist(num_tfruits, method = "euclidean")
+num_fruits.hc.complete <- hclust(num_tfruits.dist, method = "complete")
+num_fruits.hc.ward <- hclust(num_tfruits.dist, method = "ward.D")
+plot(num_fruits.hc.complete, cex = 0.6)
+plot(num_fruits.hc.ward, cex = 0.6)
+
+# Avec les variables centrées & réduites (mais ça change rien)
+num_tfruits.scale <- scale(num_tfruits, center = TRUE, scale = TRUE)
+num_tfruits.scale.dist <- dist(num_tfruits.scale, method = "euclidean")
+num_fruits.scale.hc.complete <- hclust(num_tfruits.dist, method = "complete")
+num_fruits.scale.hc.ward <- hclust(num_tfruits.dist, method = "ward.D")
+plot(num_fruits.scale.hc.complete, cex = 0.6)
+rect.hclust(num_fruits.scale.hc.complete, k = 3)
+plot(num_fruits.scale.hc.ward, cex = 0.6)
+rect.hclust(num_fruits.scale.hc.ward, k = 3)
+
+# Avec FactoMineR/Factoextra
+#---------------------------
+
+res.cah <- HCPC(num_tfruits, graph = FALSE)
+
+# Dendogramme
+fviz_dend(res.cah,
+          cex = 0.7,
+          palette = c("deeppink2", "lightseagreen", "deepskyblue4"),
+          rect = TRUE, rect_fill = TRUE,
+          rect_border = c("deeppink2", "lightseagreen", "deepskyblue4"),
+          labels_track_height = 0.8
+          )
+
+# Factor map
+fviz_cluster(res.cah,
+             axes = c(1,2),
+             repel = TRUE,
+             show.clust.cent = TRUE,
+             palette = c("deeppink2", "lightseagreen", "deepskyblue4"),
+             ggtheme = theme_minimal(),
+             main = "Factor map"
+)
+
+fviz_cluster(res.cah,
+             axes = c(3,4),
+             repel = TRUE,
+             show.clust.cent = TRUE,
+             palette = c("deeppink2", "lightseagreen", "deepskyblue4"),
+             ggtheme = theme_minimal(),
+             main = "Factor map"
+)
+
+# Taille des clusters
+ggplot(data = res.cah$data.clust, aes(x=clust)) +
+  geom_bar(color="steelblue", fill="steelblue") +
+  ggtitle("Taille des clusters")
+```
+
+La classification réalisée sur les individus fait apparaître 3 classes.
+
+La classe 1 est composé d’individus partageant :
+
+- de faibles valeurs pour les variables Potassium.mg, Calcium.mg, Magnésium.mg, Protides.mg, Lipides.mg, Glucides.mg et Sodium.mg (de la plus extrême à la moins extrême).
+
+La classe 2 est composée d’individus tels que Abricot sec, Châtaigne sèche, Datte sèche, Figue sèche, Noix de coco sèche, Olive verte, Olive noire, Pêche séchée, Pistache fraîche et Pomme séchée. Ce groupe est caractérisé par :
+
+- de fortes valeurs pour les variables Potassium.mg, Glucides.mg, Sodium.mg et Calcium.mg (de la plus extrême à la moins extrême).
+
+C'est donc le groupe des noix. 
+
+La classe 3 est composée d’individus tels que Amande sèche, Cacahuète (Arachide sèche), Noix, Noix du Brésil, Noix de cajou et Noisette. Ce groupe est caractérisé par :
+
+- de fortes valeurs pour les variables Protides.mg, Magnésium.mg, Lipides.mg et Calcium.mg (de la plus extrême à la moins extrême).
+
+C'est donc le groupe des fruits séchés.
+
+## Classification Hiérarchique sur Composantes Principales (HCPC)
+
+```{r}
+# 2 / Classification Hiérarchique sur Composantes Principales (HCPC)
+#===================================================================
+
+res.hcpc <- HCPC(res.pca, graph = FALSE)
+
+fviz_dend(res.hcpc, 
+          cex = 0.7,
+          palette = c("deeppink2", "lightseagreen", "deepskyblue4"),            
+          rect = TRUE, rect_fill = TRUE,
+          rect_border = c("deeppink2", "lightseagreen", "deepskyblue4"),        
+          labels_track_height = 0.8
+)
+
+fviz_cluster(res.hcpc,
+             repel = TRUE,
+             show.clust.cent = TRUE,
+             palette = c("deeppink2", "lightseagreen", "deepskyblue4"),
+             ggtheme = theme_minimal(),
+             main = "Factor map"
+)
+
+# Taille des clusters
+ggplot(data = res.hcpc$data.clust, aes(x=clust)) +
+  geom_bar(color="steelblue", fill="steelblue") +
+  ggtitle("Taille des clusters")
+```
+
+On retrouve pour cette méthode les 3 mêmes groupes qu'avec la classification hiérarchique ascendante.
+
+## Méthode des K-means
+
+### Calcul du nombre optimal de clusters
+
+Trois méthodes sont généralement employées :
+
+- Elbow method : basée sur la minimisation de la somme des carrés des écarts à l’intérieur des clusters (SSwithin).
+- Average silhouette method : basée sur la maximisation du paramètre appelé “average silhouette”.
+- Gap statistic method : basée sur la comparaison de la variation totale intra-cluster pour différentes valeurs de k avec leurs valeurs attendues sous une distribution de référence nulle des données.
+
+De plus, la fonction NbClust() fournit 30 indices de détermination d'un nombre crédible de clusters et propose à l'utilisateur le meilleur nombre de clusters.
+
+```{r}
+# 3 / Partitionnement en K-moyennes (k-means)
+#============================================
+
+# Calcul du nombre optimal de clusters
+#-------------------------------------
+
+# Silhouette method
+fviz_nbclust(num_tfruits, hcut, method = "silhouette") +
+  labs(subtitle = "Silhouette method")
+
+# Elbow method
+fviz_nbclust(num_tfruits, hcut, method = "wss") +
+  geom_vline(xintercept = 3, linetype = 2)+
+  labs(subtitle = "Elbow method")
+
+# Gap statistic
+fviz_nbclust(num_tfruits, hcut, method = "gap_stat", nboot = 500) +
+  labs(subtitle = "Gap statistic method")
+
+# Avec NbClust
+library(NbClust)
+NbClust(data = num_tfruits, distance = "euclidean",
+        min.nc = 2, max.nc = 10, method = "complete")
+
+NbClust(data = num_tfruits, distance = "euclidean",
+        min.nc = 2, max.nc = 10, method = "ward.D")
+
+NbClust <- NbClust(data = num_tfruits, distance = "euclidean",
+        min.nc = 2, max.nc = 10, method = "kmeans")
+
+NbClust_Best.nc <- as.data.frame(NbClust$Best.nc[1,])
+ggplot(data=NbClust_Best.nc, aes(x=as.character(NbClust_Best.nc[,1]))) +
+  geom_bar(stat="count", fill="steelblue") +
+  labs(title="Fréquences des nombres de clusters calculés selon NbClust",
+       x="Nombre de clusters k",
+       y = "Fréquence parmi tous les indices") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Le nombre de clusters qui semble le plus pertinent est de 3. C'est donc ce nombre que nous utiliserons pour effectuer nos K-means.
+
+Nous pouvons visualiser les relations entre les clusters et chacune des variables utilisées pour les construire avec la méthode des K-means et représenter les clusters sur un plan en 2 dimensions.
+
+```{r}
+# Affectation des kmeans
+#-----------------------
+
+num_fruits.kmeans <- kmeans(num_tfruits, centers = 3, nstart = 20)
+
+# Visualiser la relation entre les clusters et chacune des variables utilisées
+pairs(num_tfruits, col=c(1:3)[num_fruits.kmeans$cluster])
+
+
+fviz_cluster(num_fruits.kmeans,
+             axes = c(1,2),
+             num_tfruits,
+             ellipse.type = "norm"
+             )
+
+fviz_cluster(num_fruits.kmeans,
+             axes = c(3,4),
+             num_tfruits,
+             ellipse.type = "norm"
+             )
+```
+
+La taille des clusters est donnée directement par le code ci-dessous :
+
+```{r}
+# Taille des clusters
+num_fruits.kmeans$size
+
+```
+
+On retrouve bien encore nos mêmes individus dans nos 3 mêmes groupes que lors des classifications précédentes.
+
+
+# Modélisation
+
+## Créer un nouveau le jeu de données avec les calories en plus
+
+```{r}
+library(pls)
+library(MASS)
+
+
+# Créer un nouveau le jeu de données
+#===================================
+
+tfruits2 <- read.table("teneurs_fruits.csv",
+                      sep = ",",
+                      dec = ",",
+                      header = T
+                      #row.names = T,
+                      #check.names = F,
+                      #fill = TRUE
+)
+
+#colClean <- function(x){ colnames(x) <- gsub("..", ".", colnames(x)); x }
+colnames(tfruits2)[colnames(tfruits2) == 'X'] <- "especes"
+colnames(tfruits2) <- gsub(x=colnames(tfruits2), pattern = "\\.$", replacement = "")
+colnames(tfruits2) <- gsub(x=colnames(tfruits2), pattern = "\\.\\.", replacement = "\\.")
+# Convertir les colonnes qui sont en "g" en "mg"
+# Repérer les colonnes en "g" au lieu de "mg" (2 façons)
+col_grammes <- grep(".g", names(tfruits2), value = T)
+
+for (i in 1:length(col_grammes)) {
+  # Multiplier par 1000 pour convertir en mg
+  tfruits2[col_grammes[i]] <- get(col_grammes[i], tfruits2) * 1000
+  # changer nom de la colonne
+  colnames(tfruits2)[match(colnames(tfruits2[col_grammes[i]]), colnames(tfruits2))] <- sub(".g", ".mg", col_grammes[i])
+}
+# Supprimer les colonnes "joules.kJ" et Calories.kcal
+tfruits2$joules.kJ <- NULL
+
+
+```
+
+## Régression linéaire multiple
+
+```{r}
+YC <- tfruits2$Calories.kcal
+XC <- tfruits
+null=lm(YC ~ -1, data = data.frame(XC))
+# définition du modèle complet
+full=lm(YC ~ -1+., data = data.frame(XC))
+# choix du meilleur modèle par SW en utilisant le critère d'AIC pour optimiser le modèle
+```
+
+Code non fonctionnel... Et je ne sais pas pourquoi
+
+fit.sw=stepAIC(null, scope=list(lower=null, upper=full), direction="forward", k=log(n), trace=0)
+
+pander(summary(fit.sw))
+
+
+## Principal Component Regression
+
+```{r}
+fit.pcr <- pcr(YC~.,data=data.frame(XC), validation = "CV")
+plot(fit.pcr$validation$PRESS[1:10], type= "b")
+```
+
+On a un coude à 2, on choisi donc 2 composantes.
+
+```{r}
+
+fit.pcr.2 <- pcr(YC~.,data=data.frame(XC), ncomp=2)
+summary(fit.pcr)
+```
+
+RMSE_fun inconnue...
+
+
+
+
+# FIN :-)
